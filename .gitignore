@@ -42,3 +42,7 @@ coverage.xml
 # OS
 .DS_Store
 Thumbs.db
+
+# Image folders
+scripts/outputs/
+outputs/
