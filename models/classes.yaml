@@ -1,0 +1,45 @@
+# Label → compliance role mapping for keremberke/yolov8m-hard-hat-detection
+#
+# used_for_compliance: true  → actively considered in Safe/Unsafe logic
+# used_for_compliance: false → detection is ignored during compliance assessment
+
+classes:
+  Person:
+    role: subject
+    used_for_compliance: true
+
+  Hardhat:
+    role: ppe_positive
+    used_for_compliance: true
+
+  Safety Vest:
+    role: ppe_positive
+    used_for_compliance: true
+
+  NO-Hardhat:
+    role: ppe_negative
+    used_for_compliance: true
+
+  NO-Safety Vest:
+    role: ppe_negative
+    used_for_compliance: true
+
+  Mask:
+    role: ignored
+    used_for_compliance: false
+
+  NO-Mask:
+    role: ignored
+    used_for_compliance: false
+
+  Safety Cone:
+    role: ignored
+    used_for_compliance: false
+
+  machinery:
+    role: ignored
+    used_for_compliance: false
+
+  vehicle:
+    role: ignored
+    used_for_compliance: false
