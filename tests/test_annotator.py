@@ -10,7 +10,10 @@ from src.compliance import ComplianceResult
 from src.detector import LABEL_PERSON, Detection
 
 
-def make_result(is_safe: bool, x1=100, y1=50, x2=300, y2=400) -> ComplianceResult:
+def make_result(
+    is_safe: bool, x1=100, y1=50, x2=300, y2=400,
+    has_helmet: bool | None = None, has_vest: bool | None = None,
+) -> ComplianceResult:
     person = Detection(
         label=LABEL_PERSON,
         confidence=0.9,
@@ -19,8 +22,8 @@ def make_result(is_safe: bool, x1=100, y1=50, x2=300, y2=400) -> ComplianceResul
     return ComplianceResult(
         person=person,
         is_safe=is_safe,
-        has_vest=is_safe,
-        has_helmet=is_safe,
+        has_vest=has_vest if has_vest is not None else is_safe,
+        has_helmet=has_helmet if has_helmet is not None else is_safe,
     )
 
 
@@ -73,3 +76,38 @@ class TestAnnotate:
         out_without = annotate(blank_image, [result], ppe_detections=[ppe_det], draw_ppe_boxes=False)
         out_without_ppe = annotate(blank_image, [result], draw_ppe_boxes=False)
         np.testing.assert_array_equal(out_without, out_without_ppe)
+
+    def test_unsafe_label_shows_missing_helmet(self, blank_image):
+        """Unsafe badge for missing helmet is taller than safe badge (extra line)."""
+        safe_result = make_result(True)
+        unsafe_no_helmet = make_result(False, has_helmet=False, has_vest=True)
+        out_safe = annotate(blank_image, [safe_result])
+        out_unsafe = annotate(blank_image, [unsafe_no_helmet])
+        # Unsafe badge must have more red pixels (it's taller due to sub-line)
+        safe_red = np.sum(out_safe[:, :, 2] > 150)
+        unsafe_red = np.sum(out_unsafe[:, :, 2] > 150)
+        assert unsafe_red > safe_red
+
+    def test_unsafe_label_shows_missing_vest(self, blank_image):
+        """Unsafe badge for missing vest is taller than safe badge."""
+        safe_result = make_result(True)
+        unsafe_no_vest = make_result(False, has_helmet=True, has_vest=False)
+        out_safe = annotate(blank_image, [safe_result])
+        out_unsafe = annotate(blank_image, [unsafe_no_vest])
+        safe_red = np.sum(out_safe[:, :, 2] > 150)
+        unsafe_red = np.sum(out_unsafe[:, :, 2] > 150)
+        assert unsafe_red > safe_red
+
+    def test_unsafe_missing_both_has_largest_badge(self):
+        """Missing both helmet and vest produces the tallest badge."""
+        big_img = np.full((800, 800, 3), 50, dtype=np.uint8)
+        missing_one = make_result(False, x1=100, y1=200, x2=400, y2=700,
+                                  has_helmet=False, has_vest=True)
+        missing_both = make_result(False, x1=100, y1=200, x2=400, y2=700,
+                                   has_helmet=False, has_vest=False)
+        out_one = annotate(big_img, [missing_one])
+        out_both = annotate(big_img, [missing_both])
+        # Badge region is above the box (y < 200). Count red-filled pixels there.
+        one_red = np.sum(out_one[:200, :, 2] > 100)
+        both_red = np.sum(out_both[:200, :, 2] > 100)
+        assert both_red > one_red

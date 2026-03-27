@@ -43,6 +43,6 @@ coverage.xml
 .DS_Store
 Thumbs.db
 
-# Image folders
-scripts/outputs/
-outputs/
+# claude
+.claude/
+CLAUDE.md

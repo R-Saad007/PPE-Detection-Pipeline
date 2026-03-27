@@ -97,10 +97,10 @@ Only classes 0, 2, 4, 7 (`Hardhat`, `NO-Hardhat`, `NO-Safety Vest`, `Safety Vest
 
 For each detected `Person` bounding box that passes all filters:
 
-| Condition | Result | Colour |
-|-----------|--------|--------|
-| Hardhat matched AND Safety Vest matched, no negative signals | **Safe** | Green |
-| Missing hardhat, missing vest, or negative override present | **Unsafe - PPE Hazard** | Red |
+| Condition | Result | Colour | Annotation |
+|-----------|--------|--------|------------|
+| Hardhat matched AND Safety Vest matched, no negative signals | **Safe** | Green | `Safe` |
+| Missing hardhat, missing vest, or negative override present | **Unsafe - PPE Hazard** | Red | `Unsafe - PPE Hazard` + missing items listed below |
 
 ### PPE-to-Person Matching
 
@@ -200,17 +200,25 @@ All settings are controlled via environment variables (loaded from `.env` via `p
 
 ### SITE_ROI Configuration
 
-`SITE_ROI` defines a rectangular region (normalised fractions of image dimensions). Persons whose bounding-box center falls outside this region are excluded as pedestrians/civilians.
+`SITE_ROI` defines a rectangular region (normalised fractions of image dimensions). Persons whose bounding-box center falls outside this region are excluded as pedestrians/civilians and are **not detected at all** — no bounding box, no label.
+
+**Current production value** (validated on IHS-LAG-1197A camera):
 
 ```bash
-# Exclude left strip (gate area) and right strip (road)
-SITE_ROI=0.05,0.0,0.85,1.0
+# Excludes persons beyond the fence/gate (right 15%) and rooftop area (top 10%)
+SITE_ROI=0.0,0.10,0.85,1.0
+```
 
-# Full frame (default — all persons checked)
+```bash
+# Full frame (disabled — all persons checked)
 SITE_ROI=
 ```
 
-To determine values: open a sample image, identify the site boundary in pixels, divide by image dimensions (e.g., for 3840x2160: `x_frac = x_px / 3840`, `y_frac = y_px / 2160`).
+**How to determine values for a new camera:**
+1. Open a sample image and identify the site boundary (fence, gate, wall)
+2. Measure in pixels, then divide by image dimensions
+3. For 3840x2160: `x_frac = x_px / 3840`, `y_frac = y_px / 2160`
+4. Format: `SITE_ROI=x1,y1,x2,y2` where `(x1,y1)` is the top-left and `(x2,y2)` is the bottom-right of the monitored zone
 
 ---
 
@@ -259,6 +267,40 @@ Minimal HTML upload form for manual browser testing.
 
 ---
 
+## Annotation Output
+
+### Label Format
+
+**Safe persons** receive a single-line green badge:
+
+```
+┌──────────────┐
+│ Safe         │
+└──────────────┘
+```
+
+**Unsafe persons** receive a multi-line red badge listing the specific missing equipment:
+
+```
+┌───────────────────────┐
+│ Unsafe - PPE Hazard   │
+│   No Safety Helmet    │
+│   No Safety Vest      │
+└───────────────────────┘
+```
+
+If only one item is missing, only that line appears. Both lines appear when both are absent.
+
+### Visual Style
+
+- **Safe:** Green bounding box + green badge with white `"Safe"` text.
+- **Unsafe:** Red bounding box + red badge with white text. Missing equipment listed as indented sub-lines (85% font scale, same stroke weight as the main label for legibility).
+- **Badge position:** Above the bounding box when space permits. Falls back to inside the box at its top edge when the person is near the top of the image.
+- **Font:** `cv2.FONT_HERSHEY_SIMPLEX`. Scale proportional to box height for readability at any resolution (4K → 1080p).
+- **PPE overlay:** When `DRAW_PPE_BOXES=true`, individual PPE bounding boxes are drawn in yellow. Default `true` in Flask mode; batch mode uses `false` for clean client-review output.
+
+---
+
 ## Batch Processing
 
 Process a directory of images without running the Flask server:
@@ -279,12 +321,12 @@ python scripts/run_batch_test.py --input scripts/2025/ --dry-run
 - Moves failed images to `DEAD_LETTER_DIR`.
 - Draws person box + compliance label only (no individual PPE boxes).
 
-### Validated Results (592 real 4K images)
+### Validated Results (592 real 4K images, SITE_ROI active)
 
 | Status | Count |
 |--------|-------|
 | Safe | 42 |
-| Unsafe - PPE Hazard | 72 |
+| Unsafe - PPE Hazard | 71 |
 | No person detected | 501 |
 | Failed | 0 |
 
@@ -293,7 +335,7 @@ python scripts/run_batch_test.py --input scripts/2025/ --dry-run
 ## Testing
 
 ```bash
-# Run all tests (46 tests)
+# Run all tests (49 tests)
 pytest tests/ -v
 
 # With coverage
@@ -307,10 +349,10 @@ pytest tests/test_compliance.py -v
 
 | Module | Tests |
 |--------|-------|
-| `test_compliance.py` | Safe (hat+vest), Unsafe (missing either), vest-alone, hat-alone, negative overrides, NO-Safety Vest override, multi-person, no-double-counting (hats and vests), nearest-neighbour in overlapping zones |
-| `test_annotator.py` | Green/red colours, badge placement, box clipping, PPE box toggle |
-| `test_detector.py` | Detection NamedTuple, label constants, singleton, dual-model merge |
-| `test_integration.py` | Full pipeline (safe, unsafe, no-person), Flask routes (`/health`, `/detect`, `/`), JSON response mode |
+| `test_compliance.py` (22) | Safe (hat+vest), Unsafe (missing either), vest-alone, hat-alone, negative overrides, NO-Safety Vest override, multi-person, no-double-counting (hats and vests), nearest-neighbour in overlapping zones |
+| `test_annotator.py` (11) | Green/red colours, badge placement, box clipping, PPE box toggle, multi-line unsafe badge (missing helmet, missing vest, missing both) |
+| `test_detector.py` (8) | Detection NamedTuple, label constants, singleton, dual-model merge |
+| `test_integration.py` (8) | Full pipeline (safe, unsafe, no-person), Flask routes (`/health`, `/detect`, `/`), JSON response mode |
 
 ---
 
@@ -349,7 +391,7 @@ ppe-detection/
 ├── tests/
 │   ├── conftest.py              # Shared fixtures (person, hat, vest, image)
 │   ├── test_compliance.py       # 22 compliance logic tests
-│   ├── test_annotator.py        # 8 annotation tests
+│   ├── test_annotator.py        # 11 annotation tests
 │   ├── test_detector.py         # 8 detector tests
 │   ├── test_integration.py      # 8 integration + Flask route tests
 │   └── fixtures/                # Synthetic test images
