@@ -42,7 +42,7 @@ def annotate(
     For each :class:`~src.compliance.ComplianceResult`:
 
     - Draws a solid green/red rectangle around the person.
-    - Places a filled label badge (``"Safe"`` / ``"Unsafe - PPE Hazard"``).
+    - Places a filled single-line label badge (``"Safe"`` / ``"Unsafe: ..."``).
       The badge is drawn **above** the box when space permits; when the box
       sits at or near the top of the image the badge is drawn **inside** the
       box so it is always fully visible.
@@ -90,31 +90,13 @@ def annotate(
         box_h = max(1, y2 - y1)
         font_scale = max(0.4, min(1.2, box_h / 400.0))
         thickness = max(1, int(font_scale * 2))
-        sub_font_scale = font_scale * 0.85
-        sub_thickness = max(1, thickness)
 
-        # Build label lines: main label + missing equipment details
-        lines = [result.label]
-        if not result.is_safe:
-            if not result.has_helmet:
-                lines.append("  No Safety Helmet")
-            if not result.has_vest:
-                lines.append("  No Safety Vest")
+        # Single-line label (compliance.py builds the full text)
+        label = result.label
+        (tw, th_px), bl = cv2.getTextSize(label, _FONT, font_scale, thickness)
 
-        # Measure all lines to compute total badge size
-        line_metrics = []
-        max_text_w = 0
-        total_text_h = 0
-        for i, line in enumerate(lines):
-            fs = font_scale if i == 0 else sub_font_scale
-            th = thickness if i == 0 else sub_thickness
-            (tw, th_px), bl = cv2.getTextSize(line, _FONT, fs, th)
-            line_metrics.append((tw, th_px, bl, fs, th))
-            max_text_w = max(max_text_w, tw)
-            total_text_h += th_px + bl + _LABEL_PAD
-
-        badge_h = total_text_h + _LABEL_PAD
-        badge_w = max_text_w + 2 * _LABEL_PAD
+        badge_h = th_px + bl + 2 * _LABEL_PAD
+        badge_w = tw + 2 * _LABEL_PAD
 
         # --- Badge horizontal placement (never exceeds image width) ---
         badge_x1 = x1
@@ -131,21 +113,17 @@ def annotate(
 
         cv2.rectangle(out, (badge_x1, badge_y1), (badge_x2, badge_y2), bg_color, -1)
 
-        # Draw each line
-        cursor_y = badge_y1 + _LABEL_PAD
-        for i, (tw, th_px, bl, fs, th) in enumerate(line_metrics):
-            cursor_y += th_px
-            cv2.putText(
-                out,
-                lines[i],
-                (badge_x1 + _LABEL_PAD, cursor_y),
-                _FONT,
-                fs,
-                _COLOR_WHITE,
-                th,
-                cv2.LINE_AA,
-            )
-            cursor_y += bl + _LABEL_PAD
+        text_y = badge_y1 + _LABEL_PAD + th_px
+        cv2.putText(
+            out,
+            label,
+            (badge_x1 + _LABEL_PAD, text_y),
+            _FONT,
+            font_scale,
+            _COLOR_WHITE,
+            thickness,
+            cv2.LINE_AA,
+        )
 
     logger.debug("Annotated image", extra={"persons": len(results)})
     return out

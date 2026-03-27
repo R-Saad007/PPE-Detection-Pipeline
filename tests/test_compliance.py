@@ -63,7 +63,7 @@ class TestSinglePersonUnsafe:
 
     def test_label_unsafe(self, person_box):
         results = assess_compliance([person_box])
-        assert results[0].label == "Unsafe - PPE Hazard"
+        assert results[0].label == "Unsafe: No Helmet & Vest"
 
     def test_vest_alone_is_unsafe(self, person_box, vest_overlapping):
         """Safety Vest alone does not satisfy compliance — hardhat also required."""

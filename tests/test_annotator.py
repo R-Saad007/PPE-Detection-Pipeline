@@ -78,18 +78,17 @@ class TestAnnotate:
         np.testing.assert_array_equal(out_without, out_without_ppe)
 
     def test_unsafe_label_shows_missing_helmet(self, blank_image):
-        """Unsafe badge for missing helmet is taller than safe badge (extra line)."""
+        """Unsafe badge for missing helmet has more red pixels than safe badge."""
         safe_result = make_result(True)
         unsafe_no_helmet = make_result(False, has_helmet=False, has_vest=True)
         out_safe = annotate(blank_image, [safe_result])
         out_unsafe = annotate(blank_image, [unsafe_no_helmet])
-        # Unsafe badge must have more red pixels (it's taller due to sub-line)
         safe_red = np.sum(out_safe[:, :, 2] > 150)
         unsafe_red = np.sum(out_unsafe[:, :, 2] > 150)
         assert unsafe_red > safe_red
 
     def test_unsafe_label_shows_missing_vest(self, blank_image):
-        """Unsafe badge for missing vest is taller than safe badge."""
+        """Unsafe badge for missing vest has more red pixels than safe badge."""
         safe_result = make_result(True)
         unsafe_no_vest = make_result(False, has_helmet=True, has_vest=False)
         out_safe = annotate(blank_image, [safe_result])
@@ -98,8 +97,8 @@ class TestAnnotate:
         unsafe_red = np.sum(out_unsafe[:, :, 2] > 150)
         assert unsafe_red > safe_red
 
-    def test_unsafe_missing_both_has_largest_badge(self):
-        """Missing both helmet and vest produces the tallest badge."""
+    def test_unsafe_missing_both_has_widest_badge(self):
+        """Missing both helmet and vest produces a wider badge than missing one."""
         big_img = np.full((800, 800, 3), 50, dtype=np.uint8)
         missing_one = make_result(False, x1=100, y1=200, x2=400, y2=700,
                                   has_helmet=False, has_vest=True)

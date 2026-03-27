@@ -146,7 +146,7 @@ def detect():
         status = (
             "Safe"
             if results and all(r.is_safe for r in results)
-            else ("Unsafe - PPE Hazard" if results else "No person detected")
+            else ("Unsafe" if results else "No person detected")
         )
 
         if request.args.get("json") == "1":

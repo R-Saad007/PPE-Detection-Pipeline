@@ -53,7 +53,15 @@ class ComplianceResult:
     @property
     def label(self) -> str:
         """Human-readable compliance label."""
-        return "Safe" if self.is_safe else "Unsafe - PPE Hazard"
+        if self.is_safe:
+            return "Safe"
+        parts = []
+        if not self.has_helmet:
+            parts.append("No Helmet")
+        if not self.has_vest:
+            parts.append("No Vest")
+        reason = parts[0] + " & Vest" if len(parts) == 2 else parts[0] if parts else "PPE Violation"
+        return f"Unsafe: {reason}"
 
 
 def assess_compliance(detections: list[Detection]) -> list[ComplianceResult]:

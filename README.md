@@ -1,6 +1,6 @@
 # PPE Detection Pipeline
 
-Personal Protective Equipment (PPE) compliance detection for construction sites using a dual-model YOLOv8 architecture. The system processes camera images, detects persons, evaluates whether each person is wearing a **hardhat** and **safety vest**, and returns annotated images labelled **"Safe"** or **"Unsafe - PPE Hazard"**.
+Personal Protective Equipment (PPE) compliance detection for construction sites using a dual-model YOLOv8 architecture. The system processes camera images, detects persons, evaluates whether each person is wearing a **hardhat** and **safety vest**, and returns annotated images labelled **"Safe"** or **"Unsafe: No Helmet"** / **"Unsafe: No Vest"** / **"Unsafe: No Helmet & Vest"**.
 
 Designed for deployment on a Digital Ocean droplet receiving images from site cameras via FTP.
 
@@ -100,7 +100,9 @@ For each detected `Person` bounding box that passes all filters:
 | Condition | Result | Colour | Annotation |
 |-----------|--------|--------|------------|
 | Hardhat matched AND Safety Vest matched, no negative signals | **Safe** | Green | `Safe` |
-| Missing hardhat, missing vest, or negative override present | **Unsafe - PPE Hazard** | Red | `Unsafe - PPE Hazard` + missing items listed below |
+| Missing hardhat only | **Unsafe** | Red | `Unsafe: No Helmet` |
+| Missing vest only | **Unsafe** | Red | `Unsafe: No Vest` |
+| Missing both, or negative override present | **Unsafe** | Red | `Unsafe: No Helmet & Vest` |
 
 ### PPE-to-Person Matching
 
@@ -250,14 +252,14 @@ curl -X POST http://localhost:5000/detect \
 **JSON Response (when `?json=1`):**
 ```json
 {
-  "status": "Unsafe - PPE Hazard",
+  "status": "Unsafe",
   "persons_detected": 2,
   "safe": 1,
   "unsafe": 1
 }
 ```
 
-**Status values:** `"Safe"`, `"Unsafe - PPE Hazard"`, `"No person detected"`
+**Status values:** `"Safe"`, `"Unsafe"`, `"No person detected"`
 
 **Error responses:** `400` (bad input), `500` (inference error)
 
@@ -279,22 +281,26 @@ Minimal HTML upload form for manual browser testing.
 └──────────────┘
 ```
 
-**Unsafe persons** receive a multi-line red badge listing the specific missing equipment:
+**Unsafe persons** receive a single-line red badge specifying the missing equipment:
 
 ```
-┌───────────────────────┐
-│ Unsafe - PPE Hazard   │
-│   No Safety Helmet    │
-│   No Safety Vest      │
-└───────────────────────┘
-```
+┌──────────────────────────────┐
+│ Unsafe: No Helmet         │  ← missing helmet only
+└──────────────────────────────┘
 
-If only one item is missing, only that line appears. Both lines appear when both are absent.
+┌──────────────────────────────┐
+│ Unsafe: No Vest           │  ← missing vest only
+└──────────────────────────────┘
+
+┌──────────────────────────────┐
+│ Unsafe: No Helmet & Vest  │  ← missing both
+└──────────────────────────────┘
+```
 
 ### Visual Style
 
 - **Safe:** Green bounding box + green badge with white `"Safe"` text.
-- **Unsafe:** Red bounding box + red badge with white text. Missing equipment listed as indented sub-lines (85% font scale, same stroke weight as the main label for legibility).
+- **Unsafe:** Red bounding box + red single-line badge with white text specifying the missing equipment.
 - **Badge position:** Above the bounding box when space permits. Falls back to inside the box at its top edge when the person is near the top of the image.
 - **Font:** `cv2.FONT_HERSHEY_SIMPLEX`. Scale proportional to box height for readability at any resolution (4K → 1080p).
 - **PPE overlay:** When `DRAW_PPE_BOXES=true`, individual PPE bounding boxes are drawn in yellow. Default `true` in Flask mode; batch mode uses `false` for clean client-review output.
@@ -326,7 +332,7 @@ python scripts/run_batch_test.py --input scripts/2025/ --dry-run
 | Status | Count |
 |--------|-------|
 | Safe | 42 |
-| Unsafe - PPE Hazard | 71 |
+| Unsafe | 71 |
 | No person detected | 501 |
 | Failed | 0 |
 
@@ -350,7 +356,7 @@ pytest tests/test_compliance.py -v
 | Module | Tests |
 |--------|-------|
 | `test_compliance.py` (22) | Safe (hat+vest), Unsafe (missing either), vest-alone, hat-alone, negative overrides, NO-Safety Vest override, multi-person, no-double-counting (hats and vests), nearest-neighbour in overlapping zones |
-| `test_annotator.py` (11) | Green/red colours, badge placement, box clipping, PPE box toggle, multi-line unsafe badge (missing helmet, missing vest, missing both) |
+| `test_annotator.py` (11) | Green/red colours, badge placement, box clipping, PPE box toggle, single-line unsafe badge (missing helmet, missing vest, missing both) |
 | `test_detector.py` (8) | Detection NamedTuple, label constants, singleton, dual-model merge |
 | `test_integration.py` (8) | Full pipeline (safe, unsafe, no-person), Flask routes (`/health`, `/detect`, `/`), JSON response mode |
 
@@ -533,7 +539,7 @@ for r in results:
     print(r.is_safe)        # True/False
     print(r.has_helmet)     # True/False
     print(r.has_vest)       # True/False
-    print(r.label)          # "Safe" or "Unsafe - PPE Hazard"
+    print(r.label)          # "Safe" or "Unsafe: No Helmet" etc.
 ```
 
 **Key data types:**
@@ -545,7 +551,7 @@ Detection(label: str, confidence: float, x1: float, y1: float, x2: float, y2: fl
 
 # ComplianceResult (dataclass)
 ComplianceResult(person: Detection, is_safe: bool, has_vest: bool, has_helmet: bool)
-# .label property returns "Safe" or "Unsafe - PPE Hazard"
+# .label property returns "Safe" or "Unsafe: No Helmet" / "No Vest" / "No Helmet & Vest"
 ```
 
 **Model singleton:** `PPEDetector.get_instance()` loads both models into memory (~400 MB total). Call once at application startup — subsequent calls return the cached instance. Use a single gunicorn worker to keep both models in memory.
