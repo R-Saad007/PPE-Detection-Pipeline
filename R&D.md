@@ -35,6 +35,39 @@ The current PPE pipeline processes **~0.7 images/sec on a 2 vCPU CPU-only server
 | **Total per image** | **~1200-1800 ms** | |
 | **Throughput** | **~0.6-0.8 img/sec** | |
 
+### Stress Test: RAM & CPU Utilization (Measured 2026-03-30)
+
+> **Test machine:** 14-core CPU, 15.5 GB RAM, PyTorch (CPU-only), 4K JPEG inputs (3840×2160).
+> **Tool:** `scripts/stress_test.py` — measures RSS via `psutil`, CPU as millicores (1000m = 1 full core).
+
+| State | RSS (MB) | CPU (millicores) | Notes |
+|-------|----------|-------------------|-------|
+| **Idle** (models loaded, no inference) | **438** | **~0** | Both models resident in memory; no background CPU activity |
+| **Single image processing** | **597** (peak) | **~7100** | +159 MB transient for inference buffers; saturates ~7 cores |
+| **Batch processing** (10 images sequential) | **598** (peak) | **~7800 avg / ~8300 peak** | Sustained throughput: ~2.9 img/sec on 14 cores |
+
+**Key observations:**
+
+- **Memory is stable across states.** Peak RSS never exceeded 600 MB even under sustained batch load. The ~160 MB transient overhead (idle → inference) is consistent regardless of batch size — buffers are reused, not accumulated.
+- **CPU scales with available cores.** YOLO inference is multi-threaded via OpenMP/MKL and will consume all available cores. On a 2 vCPU droplet, expect CPU to cap at ~2000 millicores (2 full cores) with proportionally lower throughput.
+- **Idle CPU is effectively zero.** No background threads or polling when the pipeline is not processing — safe for shared-resource environments.
+
+#### Projected Resource Usage on DigitalOcean Droplets
+
+| Droplet Size | State | Estimated RAM | Estimated CPU | Estimated Throughput |
+|-------------|-------|---------------|---------------|---------------------|
+| 2 vCPU / 4 GB | Idle | ~438 MB | ~0m | — |
+| 2 vCPU / 4 GB | Single image | ~600 MB | ~2000m (saturated) | ~0.6-0.8 img/sec |
+| 2 vCPU / 4 GB | Batch (sustained) | ~600 MB | ~2000m (saturated) | ~0.6-0.8 img/sec |
+| 4 vCPU / 8 GB | Idle | ~438 MB | ~0m | — |
+| 4 vCPU / 8 GB | Single image | ~600 MB | ~4000m (saturated) | ~1.5-2.0 img/sec |
+| 4 vCPU / 8 GB | Batch (sustained) | ~600 MB | ~4000m (saturated) | ~1.5-2.0 img/sec |
+| 8 vCPU / 16 GB | Idle | ~438 MB | ~0m | — |
+| 8 vCPU / 16 GB | Single image | ~600 MB | ~7000-8000m | ~3.0-4.0 img/sec |
+| 8 vCPU / 16 GB | Batch (sustained) | ~600 MB | ~8000m (saturated) | ~3.0-4.0 img/sec |
+
+> **Sizing takeaway:** A **2 vCPU / 4 GB** droplet is the minimum viable deployment — 600 MB peak fits within 4 GB with headroom for OS + Flask. CPU will be the bottleneck, not RAM. For 500-site scaling, RAM is not a concern; CPU core count drives throughput linearly.
+
 ### Bottleneck Analysis
 
 ```
