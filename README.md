@@ -20,6 +20,7 @@ Designed for deployment on a Digital Ocean droplet receiving images from site ca
 - [Deployment](#deployment)
 - [Integration Notes](#integration-notes)
 - [Known Limitations](#known-limitations)
+- [Further Reading](#further-reading)
 
 ---
 
@@ -149,8 +150,7 @@ venv\Scripts\activate     # Windows
 # Install dependencies
 pip install -r requirements.txt
 
-# Configure environment
-cp .env.example .env
+# Configure environment (create .env from the variable reference below)
 # Edit .env as needed (defaults work for local development)
 
 # Copy person model weights (not in repo)
@@ -177,7 +177,7 @@ curl -X POST http://localhost:5000/detect \
 
 ## Configuration
 
-All settings are controlled via environment variables (loaded from `.env` via `python-dotenv`). See `.env.example` for the complete list.
+All settings are controlled via environment variables (loaded from `.env` via `python-dotenv`).
 
 ### Key Variables
 
@@ -368,11 +368,15 @@ pytest tests/test_compliance.py -v
 ppe-detection/
 ├── CLAUDE.md                    # AI assistant context (condensed architecture reference)
 ├── README.md                    # This file
-├── .env.example                 # Environment variable template
+├── deployment.md                # Deployment strategy, architecture options, step-by-step guide
+├── R&D.md                       # CPU optimization, scaling analysis, cost estimates
+├── proxmoxconfig.md             # Proxmox VM configuration guide
+├── .env                         # Environment variables (gitignored)
 ├── .gitignore
 ├── requirements.txt             # Pinned dependencies
 │
 ├── config/
+│   ├── __init__.py
 │   ├── settings.py              # Centralised config — all values from env vars
 │   └── logging_config.py        # Structured JSON logging setup
 │
@@ -395,6 +399,7 @@ ppe-detection/
 │       └── bbox.py              # IoU, center-containment helpers
 │
 ├── tests/
+│   ├── __init__.py
 │   ├── conftest.py              # Shared fixtures (person, hat, vest, image)
 │   ├── test_compliance.py       # 22 compliance logic tests
 │   ├── test_annotator.py        # 11 annotation tests
@@ -405,6 +410,7 @@ ppe-detection/
 ├── scripts/
 │   ├── run_batch_test.py        # Batch inference CLI
 │   ├── benchmark.py             # Throughput profiling
+│   ├── stress_test.py           # RAM & CPU utilisation stress test
 │   └── 2025/                    # Real camera images (gitignored)
 │       ├── 10/                  # Camera group 10
 │       └── 11/                  # Camera group 11
@@ -419,29 +425,28 @@ ppe-detection/
 
 ## Deployment
 
-### Requirements
+> **Full deployment strategy, architecture options, and step-by-step guide:** See [deployment.md](deployment.md).
 
-- Ubuntu 22.04 LTS (or similar)
-- 2 vCPU / 4 GB RAM (minimum for YOLOv8s + YOLO11m in memory)
-- Python 3.10+
-- ~500 MB disk for models + HuggingFace cache
+### Quick Start
 
-### Step-by-Step
+| Requirement | Minimum |
+|-------------|---------|
+| OS | Ubuntu 22.04 LTS |
+| CPU / RAM | 2 vCPU / 4 GB |
+| Python | 3.10+ |
+| Disk | ~500 MB (models + HuggingFace cache) |
 
 ```bash
 # 1. Clone and install
-git clone <repo-url> /opt/ppe
-cd /opt/ppe
-python3 -m venv venv
-source venv/bin/activate
+git clone <repo-url> /opt/ppe && cd /opt/ppe
+python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 
 # 2. Copy person model weights
 cp /path/to/yolov8s.pt models/
 
-# 3. Configure
-cp .env.example .env
-nano .env  # Set FLASK_ENV=production, SITE_ROI, paths
+# 3. Configure environment
+nano .env  # Set SITE_ROI, DRAW_PPE_BOXES, etc.
 
 # 4. Create runtime directories
 mkdir -p uploads outputs failed logs
@@ -453,51 +458,7 @@ python -c "from src.detector import PPEDetector; PPEDetector.get_instance(); pri
 gunicorn -w 1 -b 0.0.0.0:5000 src.main:app
 ```
 
-### Production Setup
-
-**Systemd service** (`/etc/systemd/system/ppe.service`):
-```ini
-[Unit]
-Description=PPE Detection Flask App
-After=network.target
-
-[Service]
-User=www-data
-WorkingDirectory=/opt/ppe
-Environment="PATH=/opt/ppe/venv/bin"
-ExecStart=/opt/ppe/venv/bin/gunicorn -w 1 -b 0.0.0.0:5000 src.main:app
-Restart=always
-RestartSec=5
-StandardOutput=append:/opt/ppe/logs/app.log
-StandardError=append:/opt/ppe/logs/app.log
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-systemctl daemon-reload
-systemctl enable ppe
-systemctl start ppe
-```
-
-**Nginx reverse proxy** (port 80/443 → 5000):
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;
-
-    client_max_body_size 25M;
-
-    location / {
-        proxy_pass http://127.0.0.1:5000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_read_timeout 30s;
-    }
-}
-```
+For production setup (systemd, Nginx, TLS), the DigitalOcean 10-step guide, and architecture options (standalone vs API gateway vs Kubernetes), see [deployment.md](deployment.md).
 
 ### Phase 2 — FTP Watcher
 
@@ -600,6 +561,17 @@ ComplianceResult(person: Detection, is_safe: bool, has_vest: bool, has_helmet: b
 - Failed/corrupt images quarantined in `DEAD_LETTER_DIR` (never deleted, never re-processed).
 - Flask runs as a non-root user in production.
 - Dependencies pinned in `requirements.txt`. Run `pip-audit` to check for vulnerabilities.
+
+---
+
+## Further Reading
+
+| Document | Description |
+|----------|-------------|
+| [deployment.md](deployment.md) | Deployment strategy, architecture options (standalone / API gateway / K8s), DigitalOcean step-by-step guide |
+| [R&D.md](R&D.md) | CPU optimization (ONNX, INT8), 500-site scaling analysis, droplet sizing, cost estimates |
+| [proxmoxconfig.md](proxmoxconfig.md) | Proxmox VM configuration for AMD Opteron deployments |
+| [CLAUDE.md](CLAUDE.md) | AI assistant context — condensed architecture and config reference |
 
 ---
 
