@@ -18,6 +18,7 @@ from src.compliance import assess_compliance
 from src.detector import (
     LABEL_HARDHAT,
     LABEL_NO_HARDHAT,
+    LABEL_NO_SAFETY_VEST,
     LABEL_PERSON,
     LABEL_SAFETY_VEST,
     Detection,
@@ -159,3 +160,130 @@ class TestDetectRoute:
         data = resp.get_json()
         assert "status" in data
         assert data["status"] == "No person detected"
+
+
+# ---------------------------------------------------------------------------
+# /detect/full route tests
+# ---------------------------------------------------------------------------
+
+class TestDetectFullRoute:
+    def test_no_image_returns_400(self, flask_client):
+        assert flask_client.post("/detect/full").status_code == 400
+
+    def test_no_person_response(self, flask_client):
+        jpeg = _make_jpeg_bytes()
+        mock_det = MagicMock()
+        mock_det.detect.return_value = []
+        import src.main as main_module
+        with patch.object(main_module, "_get_detector", return_value=mock_det):
+            resp = flask_client.post(
+                "/detect/full",
+                data={"image": (io.BytesIO(jpeg), "test.jpg")},
+                content_type="multipart/form-data",
+            )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["Status"] == "No person detected"
+        assert data["Alarm"] is False
+        assert data["PPE-missing"] == []
+        assert data["persons_detected"] == 0
+        assert "image_base64" in data
+
+    def test_safe_person_response(self, flask_client):
+        jpeg = _make_jpeg_bytes()
+        mock_det = MagicMock()
+        mock_det.detect.return_value = [
+            Detection(LABEL_PERSON, 0.9, 10, 10, 80, 90),
+            Detection(LABEL_HARDHAT, 0.80, 12, 12, 78, 50),
+            Detection(LABEL_SAFETY_VEST, 0.85, 12, 40, 78, 80),
+        ]
+        import src.main as main_module
+        with patch.object(main_module, "_get_detector", return_value=mock_det):
+            resp = flask_client.post(
+                "/detect/full",
+                data={"image": (io.BytesIO(jpeg), "test.jpg")},
+                content_type="multipart/form-data",
+            )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["Status"] == "Safe"
+        assert data["Alarm"] is False
+        assert data["PPE-missing"] == []
+        assert data["persons_detected"] == 1
+        assert data["safe"] == 1
+
+    def test_unsafe_no_helmet_response(self, flask_client):
+        jpeg = _make_jpeg_bytes()
+        mock_det = MagicMock()
+        mock_det.detect.return_value = [
+            Detection(LABEL_PERSON, 0.9, 10, 10, 80, 90),
+            Detection(LABEL_SAFETY_VEST, 0.85, 12, 40, 78, 80),
+            # No hardhat
+        ]
+        import src.main as main_module
+        with patch.object(main_module, "_get_detector", return_value=mock_det):
+            resp = flask_client.post(
+                "/detect/full",
+                data={"image": (io.BytesIO(jpeg), "test.jpg")},
+                content_type="multipart/form-data",
+            )
+        data = resp.get_json()
+        assert data["Status"] == "Unsafe: No Helmet"
+        assert data["Alarm"] is True
+        assert data["PPE-missing"] == ["Hard Hat"]
+
+    def test_unsafe_no_vest_response(self, flask_client):
+        jpeg = _make_jpeg_bytes()
+        mock_det = MagicMock()
+        mock_det.detect.return_value = [
+            Detection(LABEL_PERSON, 0.9, 10, 10, 80, 90),
+            Detection(LABEL_HARDHAT, 0.80, 12, 12, 78, 50),
+            # No vest
+        ]
+        import src.main as main_module
+        with patch.object(main_module, "_get_detector", return_value=mock_det):
+            resp = flask_client.post(
+                "/detect/full",
+                data={"image": (io.BytesIO(jpeg), "test.jpg")},
+                content_type="multipart/form-data",
+            )
+        data = resp.get_json()
+        assert data["Status"] == "Unsafe: No Vest"
+        assert data["Alarm"] is True
+        assert data["PPE-missing"] == ["Safety Vest"]
+
+    def test_unsafe_both_missing_response(self, flask_client):
+        jpeg = _make_jpeg_bytes()
+        mock_det = MagicMock()
+        mock_det.detect.return_value = [
+            Detection(LABEL_PERSON, 0.9, 10, 10, 80, 90),
+            # No hardhat, no vest
+        ]
+        import src.main as main_module
+        with patch.object(main_module, "_get_detector", return_value=mock_det):
+            resp = flask_client.post(
+                "/detect/full",
+                data={"image": (io.BytesIO(jpeg), "test.jpg")},
+                content_type="multipart/form-data",
+            )
+        data = resp.get_json()
+        assert data["Status"] == "Unsafe: No Helmet & Vest"
+        assert data["Alarm"] is True
+        assert "Hard Hat" in data["PPE-missing"]
+        assert "Safety Vest" in data["PPE-missing"]
+
+    def test_image_base64_is_valid_jpeg(self, flask_client):
+        jpeg = _make_jpeg_bytes()
+        mock_det = MagicMock()
+        mock_det.detect.return_value = []
+        import src.main as main_module
+        with patch.object(main_module, "_get_detector", return_value=mock_det):
+            resp = flask_client.post(
+                "/detect/full",
+                data={"image": (io.BytesIO(jpeg), "test.jpg")},
+                content_type="multipart/form-data",
+            )
+        import base64
+        data = resp.get_json()
+        decoded = base64.b64decode(data["image_base64"])
+        assert decoded[:3] == b"\xff\xd8\xff"  # JPEG magic bytes

@@ -1,0 +1,22 @@
+[Unit]
+Description=PPE Detection FTP Watcher
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/ppe-watcher
+ExecStart=/usr/bin/python3 ftp_watcher.py --watch-dir /IHS-LAG-1197A --api-url http://DROPLET_IP:5000/detect/full --poll-interval 5
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Environment overrides (alternative to CLI flags)
+# Environment=PPE_WATCH_DIR=/IHS-LAG-1197A
+# Environment=PPE_API_URL=http://DROPLET_IP:5000/detect
+# Environment=PPE_POLL_INTERVAL=5
+
+[Install]
+WantedBy=multi-user.target

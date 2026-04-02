@@ -1,0 +1,32 @@
+[Unit]
+Description=PPE Detection API (gunicorn + Flask)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=ppe
+Group=ppe
+WorkingDirectory=/opt/ppe-detection
+ExecStart=/opt/ppe-detection/venv/bin/gunicorn \
+    --workers 1 \
+    --bind 0.0.0.0:5000 \
+    --timeout 120 \
+    --access-logfile - \
+    src.main:app
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Environment — adjust SITE_ROI per camera
+EnvironmentFile=/opt/ppe-detection/.env
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/ppe-detection/uploads /opt/ppe-detection/outputs /opt/ppe-detection/failed /opt/ppe-detection/logs
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
