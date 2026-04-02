@@ -9,6 +9,7 @@ GET  /         Minimal HTML upload form for manual browser testing.
 
 from __future__ import annotations
 
+import base64
 import gc
 import io
 import logging
@@ -169,6 +170,118 @@ def detect():
             mimetype="image/jpeg",
             download_name="annotated.jpg",
         )
+
+    except Exception:
+        logger.exception("Inference error", extra={"file": file.filename})
+        _move_to_dead_letter(upload_path)
+        return jsonify({"error": "Internal inference error"}), 500
+
+    finally:
+        if img is not None:
+            del img
+            gc.collect()
+
+
+@app.post("/detect/full")
+def detect_full():
+    """Accept a multipart image and return JSON with annotated image + compliance metadata.
+
+    Returns JSON:
+        {
+            "Status": "Safe" | "Unsafe: No Helmet" | "Unsafe: No Vest" | "Unsafe: No Helmet & Vest" | "No person detected",
+            "Alarm": true | false,
+            "PPE-missing": ["Hard Hat", "Safety Vest"],  // empty if Safe or no person
+            "persons_detected": int,
+            "safe": int,
+            "unsafe": int,
+            "image_base64": "<base64 JPEG>"
+        }
+    """
+    if "image" not in request.files:
+        return jsonify({"error": "No image field in request"}), 400
+
+    file = request.files["image"]
+    if file.filename == "":
+        return jsonify({"error": "Empty filename"}), 400
+
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    upload_path = UPLOAD_DIR / Path(file.filename).name
+
+    try:
+        file.save(str(upload_path))
+    except OSError as exc:
+        logger.error("Failed to save upload", extra={"error": str(exc)})
+        return jsonify({"error": "Could not save uploaded file"}), 500
+
+    try:
+        validated = validate_image_path(upload_path, watch_dir=UPLOAD_DIR)
+    except (ValueError, FileNotFoundError, OSError) as exc:
+        logger.warning("Invalid upload", extra={"reason": str(exc)})
+        _move_to_dead_letter(upload_path)
+        return jsonify({"error": str(exc)}), 400
+
+    img = None
+    try:
+        img = load_image(validated)
+        detector = _get_detector()
+        detections = detector.detect(img)
+        results = assess_compliance(detections)
+
+        ppe_dets = [
+            d for d in detections
+            if d.label in (
+                LABEL_HARDHAT, LABEL_SAFETY_VEST,
+                LABEL_NO_HARDHAT, LABEL_NO_SAFETY_VEST,
+            )
+        ]
+
+        annotated = annotate(img, results, ppe_detections=ppe_dets, draw_ppe_boxes=DRAW_PPE_BOXES)
+
+        # Encode annotated image to base64
+        success, buf = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 92])
+        if not success:
+            return jsonify({"error": "Failed to encode annotated image"}), 500
+        image_b64 = base64.b64encode(buf.tobytes()).decode("ascii")
+
+        # Build compliance metadata
+        safe_count = sum(1 for r in results if r.is_safe)
+        unsafe_count = len(results) - safe_count
+
+        if not results:
+            status = "No person detected"
+            alarm = False
+            ppe_missing: list[str] = []
+        elif unsafe_count == 0:
+            status = "Safe"
+            alarm = False
+            ppe_missing = []
+        else:
+            # Aggregate: worst-case status across all persons
+            missing_helmet = any(not r.has_helmet for r in results if not r.is_safe)
+            missing_vest = any(not r.has_vest for r in results if not r.is_safe)
+            ppe_missing = []
+            if missing_helmet:
+                ppe_missing.append("Hard Hat")
+            if missing_vest:
+                ppe_missing.append("Safety Vest")
+
+            if missing_helmet and missing_vest:
+                status = "Unsafe: No Helmet & Vest"
+            elif missing_helmet:
+                status = "Unsafe: No Helmet"
+            else:
+                status = "Unsafe: No Vest"
+            alarm = True
+
+        return jsonify({
+            "Status": status,
+            "Alarm": alarm,
+            "PPE-missing": ppe_missing,
+            "persons_detected": len(results),
+            "safe": safe_count,
+            "unsafe": unsafe_count,
+            "image_base64": image_b64,
+        })
 
     except Exception:
         logger.exception("Inference error", extra={"file": file.filename})
