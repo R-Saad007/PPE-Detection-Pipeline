@@ -2,6 +2,7 @@
 .env
 *.env
 *.env.*
+*.env
 
 # Model weights (stored externally)
 models/*.bin
