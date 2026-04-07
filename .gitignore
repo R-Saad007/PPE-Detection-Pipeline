@@ -2,7 +2,6 @@
 .env
 *.env
 *.env.*
-*.env
 
 # Model weights (stored externally)
 models/*.bin
@@ -28,6 +27,7 @@ env/
 
 # Logs
 logs/
+2026/
 
 # Test artifacts
 .pytest_cache/
