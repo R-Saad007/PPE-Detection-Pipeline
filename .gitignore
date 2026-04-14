@@ -28,6 +28,8 @@ env/
 # Logs
 logs/
 2026/
+outputs/
+scripts/2025/
 
 # Test artifacts
 .pytest_cache/
